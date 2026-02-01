@@ -1,28 +1,32 @@
 #include <WiFi.h>
-#include <PubSubClient.h>
+#include <WebServer.h>
 #include <ArduinoJson.h>
 #include <PZEM004Tv30.h>
+#include <HTTPClient.h>
+#include <ESPmDNS.h>
+#include <DNSServer.h>
 
 // WiFi credentials
-const char* ssid = "YOUR_WIFI_SSID";
-const char* password = "YOUR_WIFI_PASSWORD";
+const char* ssid = "kavitha-siva-5ghz";
+const char* password = "siva1103";
 
-// MQTT settings
-const char* mqtt_server = "YOUR_MQTT_BROKER";
-const int mqtt_port = 1883;
-const char* mqtt_topic = "smartenergy/data";
+// mDNS settings
+const char* esp32_hostname = "esp32-energy";
+const char* api_hostname = "energy-api";
+
+// API server settings (will be discovered via mDNS)
+String api_server_url = "";
 
 // Pin definitions
 #define PZEM_SERIAL_RX 16
 #define PZEM_SERIAL_TX 17
-#define RELAY_PIN 2
-#define LED_PIN 4
+#define RELAY_PIN 25
 
 // Hardware objects
 HardwareSerial pzemSerial(2);
 PZEM004Tv30 pzem(&pzemSerial, PZEM_SERIAL_RX, PZEM_SERIAL_TX);
-WiFiClient espClient;
-PubSubClient client(espClient);
+WebServer server(80);
+HTTPClient http;
 
 // Energy data structure
 struct EnergyData {
@@ -37,95 +41,9 @@ struct EnergyData {
 };
 
 EnergyData currentData;
-
-void setup() {
-  Serial.begin(115200);
-  pinMode(RELAY_PIN, OUTPUT);
-  pinMode(LED_PIN, OUTPUT);
-  
-  // Initialize relay to OFF
-  digitalWrite(RELAY_PIN, LOW);
-  digitalWrite(LED_PIN, LOW);
-  
-  setupWiFi();
-  setupMQTT();
-  
-  Serial.println("Smart Energy Monitor Initialized");
-}
-
-void loop() {
-  if (!client.connected()) {
-    reconnectMQTT();
-  }
-  client.loop();
-  
-  // Read sensor data
-  readEnergyData();
-  
-  // Send data via MQTT
-  publishEnergyData();
-  
-  // Control LED based on power consumption
-  if (currentData.power > 1000) {
-    digitalWrite(LED_PIN, HIGH);
-  } else {
-    digitalWrite(LED_PIN, LOW);
-  }
-  
-  delay(5000); // Send data every 5 seconds
-}
-
-void setupWiFi() {
-  Serial.print("Connecting to WiFi...");
-  WiFi.begin(ssid, password);
-  
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  
-  Serial.println("Connected!");
-  Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());
-}
-
-void setupMQTT() {
-  client.setServer(mqtt_server, mqtt_port);
-  client.setCallback(mqttCallback);
-}
-
-void reconnectMQTT() {
-  while (!client.connected()) {
-    Serial.print("Attempting MQTT connection...");
-    
-    if (client.connect("ESP32_Energy_Monitor")) {
-      Serial.println("connected");
-      client.subscribe("smartenergy/control");
-    } else {
-      Serial.print("failed, rc=");
-      Serial.print(client.state());
-      Serial.println(" try again in 5 seconds");
-      delay(5000);
-    }
-  }
-}
-
-void mqttCallback(char* topic, byte* payload, unsigned int length) {
-  String message = "";
-  for (int i = 0; i < length; i++) {
-    message += (char)payload[i];
-  }
-  
-  // Parse control commands
-  DynamicJsonDocument doc(256);
-  deserializeJson(doc, message);
-  
-  if (doc.containsKey("relay")) {
-    bool relayState = doc["relay"];
-    digitalWrite(RELAY_PIN, relayState ? HIGH : LOW);
-    currentData.relayState = relayState;
-  }
-}
+unsigned long lastUpdateTime = 0;
+const unsigned long updateInterval = 3000; // 3 seconds
+bool api_discovered = false;
 
 void readEnergyData() {
   currentData.voltage = pzem.voltage();
@@ -138,27 +56,37 @@ void readEnergyData() {
   currentData.timestamp = millis();
   
   // Handle sensor errors
-  if (isnan(currentData.voltage)) {
-    currentData.voltage = 0;
+  if (isnan(currentData.voltage)) currentData.voltage = 0;
+  if (isnan(currentData.current)) currentData.current = 0;
+  if (isnan(currentData.power)) currentData.power = 0;
+  if (isnan(currentData.energy)) currentData.energy = 0;
+  if (isnan(currentData.frequency)) currentData.frequency = 0;
+  if (isnan(currentData.powerFactor)) currentData.powerFactor = 0;
+}
+
+void discoverAPIServer() {
+  Serial.println("Discovering API server via mDNS...");
+  
+  int n = MDNS.queryService("http", "tcp");
+  for (int i = 0; i < n; ++i) {
+    if (MDNS.hostname(i).equals(api_hostname)) {
+      api_server_url = "http://" + MDNS.IP(i).toString() + ":3000";
+      Serial.print("API server discovered at: ");
+      Serial.println(api_server_url);
+      api_discovered = true;
+      return;
+    }
   }
-  if (isnan(currentData.current)) {
-    currentData.current = 0;
-  }
-  if (isnan(currentData.power)) {
-    currentData.power = 0;
-  }
-  if (isnan(currentData.energy)) {
-    currentData.energy = 0;
-  }
-  if (isnan(currentData.frequency)) {
-    currentData.frequency = 0;
-  }
-  if (isnan(currentData.powerFactor)) {
-    currentData.powerFactor = 0;
-  }
+  
+  Serial.println("API server not found, retrying...");
 }
 
 void publishEnergyData() {
+  if (!api_discovered) {
+    discoverAPIServer();
+    if (!api_discovered) return;
+  }
+  
   DynamicJsonDocument doc(1024);
   
   doc["voltage"] = currentData.voltage;
@@ -174,9 +102,128 @@ void publishEnergyData() {
   String jsonString;
   serializeJson(doc, jsonString);
   
-  client.publish(mqtt_topic, jsonString.c_str());
+  // Send to API server via HTTP
+  String apiUrl = api_server_url + "/api/data";
+  http.begin(apiUrl);
+  http.addHeader("Content-Type", "application/json");
   
-  // Also print to serial for debugging
+  int httpResponseCode = http.POST(jsonString);
+  
+  if (httpResponseCode > 0) {
+    Serial.print("HTTP Response code: ");
+    Serial.println(httpResponseCode);
+  } else {
+    Serial.print("Error on HTTP request: ");
+    Serial.println(httpResponseCode);
+    api_discovered = false; // Reset discovery on error
+  }
+  
+  http.end();
+  
   Serial.print("Published: ");
   Serial.println(jsonString);
+}
+
+void handleControl() {
+  if (server.hasArg("plain")) {
+    String body = server.arg("plain");
+    DynamicJsonDocument doc(256);
+    deserializeJson(doc, body);
+    
+    if (doc.containsKey("relay")) {
+      bool relayState = doc["relay"];
+      digitalWrite(RELAY_PIN, relayState ? HIGH : LOW);
+      currentData.relayState = relayState;
+      
+      DynamicJsonDocument response(128);
+      response["success"] = true;
+      response["relay"] = relayState;
+      
+      String resp;
+      serializeJson(response, resp);
+      server.send(200, "application/json", resp);
+      
+      Serial.print("Relay state changed via HTTP: ");
+      Serial.println(relayState ? "ON" : "OFF");
+      return;
+    }
+  }
+  
+  server.send(400, "application/json", "{\"error\":\"Invalid request\"}");
+}
+
+void handleStatus() {
+  DynamicJsonDocument doc(512);
+  
+  doc["status"] = "online";
+  doc["hostname"] = esp32_hostname;
+  doc["relayState"] = currentData.relayState;
+  doc["api_discovered"] = api_discovered;
+  doc["api_server"] = api_server_url;
+  
+  String response;
+  serializeJson(doc, response);
+  server.send(200, "application/json", response);
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, LOW);
+  
+  // Initialize PZEM
+  pzemSerial.begin(9600, SERIAL_8N1, PZEM_SERIAL_RX, PZEM_SERIAL_TX);
+  
+  // Setup WiFi
+  setupWiFi();
+  
+  // Setup mDNS
+  if (!MDNS.begin(esp32_hostname)) {
+    Serial.println("Error setting up MDNS responder!");
+    while(1) {
+      delay(1000);
+    }
+  }
+  Serial.println("mDNS responder started");
+  
+  // Add mDNS service
+  MDNS.addService("http", "tcp", 80);
+  
+  // Setup web server
+  server.on("/", handleStatus);
+  server.on("/control", HTTP_POST, handleControl);
+  server.begin();
+  
+  Serial.println("Smart Energy Monitor Initialized");
+  Serial.println("Hostname: " + String(esp32_hostname) + ".local");
+  Serial.println("Sending data every 3 seconds to API server");
+}
+
+void loop() {
+  server.handleClient();
+  
+  // Send data every 3 seconds
+  unsigned long currentTime = millis();
+  if (currentTime - lastUpdateTime >= updateInterval) {
+    readEnergyData();
+    publishEnergyData();
+    lastUpdateTime = currentTime;
+  }
+}
+
+void setupWiFi() {
+  Serial.print("Connecting to WiFi...");
+  WiFi.begin(ssid, password);
+  
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  
+  Serial.println("\nConnected!");
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+  Serial.print("mDNS: ");
+  Serial.print(esp32_hostname);
+  Serial.println(".local");
 }

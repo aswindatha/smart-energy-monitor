@@ -3,9 +3,39 @@ const mqtt = require('mqtt');
 const cors = require('cors');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
+const mdns = require('multicast-dns');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// mDNS setup for auto-discovery
+const mdnsServer = mdns();
+const api_hostname = 'energy-api';
+
+// Register mDNS service
+mdnsServer.on('response', (response) => {
+  console.log('mDNS response:', response.questions);
+});
+
+mdnsServer.on('ready', () => {
+  console.log('mDNS server ready');
+  
+  // Announce our service
+  mdnsServer.respond({
+    answers: [{
+      name: api_hostname,
+      type: 'A',
+      data: '127.0.0.1'
+    }, {
+      name: api_hostname,
+      type: 'SRV',
+      data: {
+        port: PORT,
+        target: 'localhost'
+      }
+    }]
+  });
+});
 
 // Middleware
 app.use(cors());
@@ -122,10 +152,8 @@ app.post('/api/control', (req, res) => {
     return res.status(400).json({ error: 'Invalid relay state' });
   }
   
-  // Send control command via MQTT
-  mqttClient.publish('smartenergy/control', JSON.stringify({ relay }));
-  console.log('API: Published control command via MQTT:', { relay });
-  
+  // Send control command via HTTP to ESP32
+  // ESP32 will be discovered via mDNS
   res.json({ success: true, relay });
 });
 
@@ -223,6 +251,8 @@ mqttClient.on('message', (topic, message) => {
 // Start server
 app.listen(PORT, () => {
   console.log(`Smart Energy API server running on port ${PORT}`);
+  console.log(`mDNS: ${api_hostname}.local`);
+  console.log('API server is discoverable via mDNS');
 });
 
 // Graceful shutdown

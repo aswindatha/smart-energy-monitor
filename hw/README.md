@@ -1,98 +1,69 @@
-# Smart Energy Hardware Module
+# 🚀 Smart Energy ESP32 - mDNS Auto-Discovery
 
-This folder contains the ESP32 firmware for the Smart Energy IoT monitoring system.
+## 📱 What This Does
 
-## Hardware Components
+**ESP32 automatically discovers and connects to your API server using mDNS (Bonjour)** - no IP configuration needed!
 
-### Required Hardware
-- ESP32 Development Board
-- PZEM-004T AC Energy Monitor
-- 5V Relay Module
-- LED (for status indication)
-- Push Button (for manual control)
-- Jumper Wires
-
-### Wiring Diagram
-
+### 🌐 Architecture
 ```
-ESP32    PZEM-004T
-GPIO16   RX
-GPIO17   TX
-3.3V     VCC
-GND      GND
-
-ESP32    Relay Module
-GPIO2    IN
-5V       VCC
-GND      GND
-
-ESP32    LED
-GPIO4    LED Anode (via 220Ω resistor)
-GND      LED Cathode
-
-ESP32    Button
-GPIO0    Button Pin
-GND      Button Other Pin
+ESP32 (esp32-energy.local) 
+   ↓ HTTP POST (auto-discovered)
+API Server (energy-api.local)
+   ↓ HTTP GET/POST  
+Flutter App (auto-discovers API)
 ```
 
-## Installation
+## ⚙️ Configuration Required
 
-1. Install required Arduino libraries:
-   - `WiFi` (built-in)
-   - `PubSubClient` by Nick O'Leary
-   - `ArduinoJson` by Benoit Blanchon
-   - `PZEM004Tv30` by PZEM
-
-2. Configure WiFi and MQTT settings in `energy_monitor.ino`:
-   ```cpp
-   const char* ssid = "YOUR_WIFI_SSID";
-   const char* password = "YOUR_WIFI_PASSWORD";
-   const char* mqtt_server = "YOUR_MQTT_BROKER";
-   ```
-
-3. Upload the firmware to ESP32 using Arduino IDE.
-
-## Features
-
-- Real-time energy monitoring (voltage, current, power, energy)
-- Power factor and frequency measurement
-- Remote relay control via MQTT
-- Automatic high-power detection with LED indication
-- Data validation and error handling
-- MQTT-based communication with UI
-
-## MQTT Topics
-
-- **Publish**: `smartenergy/data` - Energy monitoring data
-- **Subscribe**: `smartenergy/control` - Control commands
-
-## Data Format
-
-### Published Data (smartenergy/data)
-```json
-{
-  "voltage": 220.5,
-  "current": 2.3,
-  "power": 506.15,
-  "energy": 1234.56,
-  "frequency": 50.0,
-  "powerFactor": 0.95,
-  "relayState": false,
-  "timestamp": 1234567890,
-  "deviceId": "ESP32_001"
-}
+### 1. WiFi Only
+```cpp
+const char* ssid = "YOUR_WIFI_SSID";        // Your WiFi network
+const char* password = "YOUR_WIFI_PASSWORD"; // Your WiFi password
 ```
 
-### Control Commands (smartenergy/control)
-```json
-{
-  "relay": true
-}
-```
+### 2. Install Libraries
+- **ESPmDNS** (built-in)
+- **ArduinoJson**
+- **PZEM004Tv30**
+- **HTTPClient**
 
-## Troubleshooting
+## 🔄 How It Works
 
-1. **PZEM-004T not responding**: Check wiring and ensure proper power supply
-2. **WiFi connection issues**: Verify SSID and password, check signal strength
-3. **MQTT connection failed**: Confirm broker address and network connectivity
-4. **Inaccurate readings**: Calibrate PZEM-004T if needed
+### Auto-Discovery Process:
+1. **ESP32 boots** → registers as `esp32-energy.local`
+2. **API server boots** → registers as `energy-api.local`
+3. **ESP32 discovers API** → finds IP via mDNS
+4. **Data flows** → ESP32 → API → Flutter App
+
+### Data Flow:
+- **ESP32** reads PZEM every 3 seconds
+- **HTTP POST** to discovered API server
+- **Flutter app** gets data from API server
+- **Control commands** via HTTP to ESP32
+
+## 📊 Endpoints
+
+### ESP32 Endpoints:
+- `GET http://esp32-energy.local/` - Status
+- `POST http://esp32-energy.local/control` - Relay control
+
+### API Server Endpoints:
+- `GET http://energy-api.local/api/data` - Current data
+- `POST http://energy-api.local/api/control` - Control ESP32
+
+## 🚀 Setup Steps
+
+1. **Update WiFi credentials** in `energy_monitor.ino`
+2. **Install required libraries**
+3. **Upload to ESP32**
+4. **Start API server** (`npm install multicast-dns`)
+5. **Run Flutter app**
+
+## ✨ Benefits
+
+- **Zero IP configuration**
+- **Works with dynamic IPs**
+- **Plug-and-play setup**
+- **Professional local deployment**
+
+**Your smart energy system now works regardless of IP changes!** 🎉

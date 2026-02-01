@@ -4,35 +4,24 @@
 // ESP32 Pin Configuration
 #define PZEM_SERIAL_RX 16    // PZEM-004T RX pin
 #define PZEM_SERIAL_TX 17    // PZEM-004T TX pin
-#define RELAY_PIN 2          // Relay control pin
-#define LED_PIN 4            // Status LED pin
-#define BUTTON_PIN 0         // Manual control button
+#define RELAY_PIN 25         // Relay control pin (corrected from GPIO2)
 
-// Sensor Configuration
-#define PZEM_ADDRESS 0x01    // Default PZEM-004T address
-#define SAMPLE_INTERVAL 5000 // Data sampling interval (ms)
+// WiFi AP Configuration
+#define AP_SSID "smart energy meter"
+#define AP_PASSWORD "12345678"
+#define AP_CHANNEL 1
+#define AP_MAX_CONNECTIONS 4
 
-// WiFi Configuration
-#define MAX_WIFI_RETRIES 10
-#define WIFI_TIMEOUT 10000   // Connection timeout (ms)
+// Web Server Configuration
+#define WEB_SERVER_PORT 80
+#define REFRESH_INTERVAL 2000  // Auto-refresh every 2 seconds
 
-// MQTT Configuration
-#define MQTT_KEEPALIVE 60
-#define MQTT_QOS 1
-#define MQTT_RETAIN false
+// PZEM Configuration
+#define PZEM_BAUD_RATE 9600
+#define PZEM_SERIAL_MODE SERIAL_8N1
 
-// Energy Thresholds
-#define HIGH_POWER_THRESHOLD 1000.0  // Watts
-#define LOW_POWER_THRESHOLD 100.0     // Watts
-#define OVERVOLTAGE_THRESHOLD 250.0   // Volts
-#define UNDERVOLTAGE_THRESHOLD 180.0  // Volts
-
-// Data Validation
-#define MIN_VOLTAGE 0.0
-#define MAX_VOLTAGE 300.0
-#define MIN_CURRENT 0.0
-#define MAX_CURRENT 100.0
-#define MIN_POWER 0.0
-#define MAX_POWER 50000.0
+// Safety Thresholds
+#define MAX_CURRENT 10.0       // Maximum current for PZEM-004T-10A
+#define MAX_POWER 2500.0       // Maximum power at 250V, 10A
 
 #endif
